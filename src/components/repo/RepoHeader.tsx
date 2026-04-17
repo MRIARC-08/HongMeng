@@ -16,12 +16,12 @@ interface RepoHeaderProps {
 
 export default function RepoHeader({ owner, name, url, stats }: RepoHeaderProps) {
   return (
-    <div className="h-14 flex items-center justify-between px-4 bg-[#111111] border-b border-[#222222] shrink-0">
+    <div className="h-14 flex items-center justify-between px-4 bg-[#303030] border-b border-[#323232] shrink-0">
       {/* Left: brand + repo name */}
       <div className="flex items-center gap-2 min-w-0">
-        <Code2 size={16} className="text-indigo-400 shrink-0" />
+        <Code2 size={16} className="text-[#ff4500] shrink-0" />
         <span className="text-xs text-[#52525b]">DevLens</span>
-        <span className="text-[#333333] mx-1">/</span>
+        <span className="text-[#424242] mx-1">/</span>
         <span className="text-sm font-medium text-white truncate">
           {owner}/{name}
         </span>
@@ -41,7 +41,7 @@ export default function RepoHeader({ owner, name, url, stats }: RepoHeaderProps)
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-1 text-xs text-[#52525b] hover:text-white
-            transition-colors ml-1 border border-[#222222] rounded-md px-2 py-1"
+            transition-colors ml-1 border border-[#323232] rounded-md px-2 py-1"
         >
           <ExternalLink size={11} />
           GitHub
@@ -61,7 +61,7 @@ function StatChip({
   label: string;
 }) {
   return (
-    <div className="flex items-center gap-1.5 text-xs text-[#71717a] bg-[#1a1a1a] border border-[#222222] rounded-md px-2 py-1">
+    <div className="flex items-center gap-1.5 text-xs text-[#71717a] bg-[#4a4a4a] border border-[#323232] rounded-md px-2 py-1">
       <span className="text-[#52525b]">{icon}</span>
       <span className="text-white font-medium">{value.toLocaleString()}</span>
       <span>{label}</span>

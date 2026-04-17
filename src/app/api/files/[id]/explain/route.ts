@@ -64,8 +64,8 @@ export async function POST(
     const importsText =
       file.outgoingDeps.length > 0
         ? file.outgoingDeps
-            .filter((d) => d.targetFile)
-            .map((d) => `- ${d.targetFile!.filePath}`)
+            .filter((d): d is typeof d & { targetFile: NonNullable<typeof d.targetFile> } => d.targetFile !== null)
+            .map((d) => `- ${d.targetFile.filePath}`)
             .join("\n")
         : "No internal dependencies";
 
