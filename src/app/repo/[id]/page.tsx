@@ -9,7 +9,8 @@ import {
   Network, FolderTree, Bot, Settings, HelpCircle,
   Plus, AlertCircle, ExternalLink, GitBranch,
   ChevronRight, Layers, Send, Sparkles, Loader2,
-  Code2, ArrowLeft, RefreshCw,
+  Code2, ArrowLeft, RefreshCw, X, ChevronLeft, Sidebar as SidebarIcon,
+  ChevronsLeft, ChevronsRight, Layout, ChevronUp,
 } from "lucide-react";
 
 import ReactMarkdown from "react-markdown";
@@ -123,16 +124,27 @@ function DragDivider({
       onMouseLeave={() => setHover(false)}
       style={{
         flexShrink: 0,
-        width:  isH ? 5  : "100%",
-        height: isH ? "100%" : 5,
+        width:  isH ? 2  : "100%",
+        height: isH ? "100%" : 2,
         cursor: isH ? "col-resize" : "row-resize",
-        background: hover ? "rgba(255,69,0,0.25)" : "#303030",
+        background: hover ? "#ff4500" : "#1a1a1a",
         transition: "background 150ms ease",
         userSelect: "none",
         position: "relative",
         zIndex: 10,
+        // Wider hit-area for better UX
+        boxShadow: hover ? "0 0 8px rgba(255,69,0,0.4)" : "none",
       }}
-    />
+    >
+      <div style={{
+        position: "absolute",
+        top: isH ? 0 : -3,
+        left: isH ? -3 : 0,
+        right: isH ? -3 : 0,
+        bottom: isH ? 0 : -3,
+        zIndex: -1,
+      }} />
+    </div>
   );
 }
 
@@ -295,31 +307,38 @@ const STARTER_QUESTIONS = [
 
 // ── Chat panel ────────────────────────────────────────────────────────────────
 
-function ChatPanel({ repoId, repoName }: { repoId: string; repoName?: string }) {
+function ChatPanel({ repoId, repoName, model, updateAiModel }: { repoId: string; repoName?: string; model?: string; updateAiModel?: (m: string) => void }) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [rateLimits, setRateLimits] = useState<Record<string, string>>({});
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const loadingRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
 
   const send = useCallback(async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || loading) return;
+    if (!trimmed || loadingRef.current) return;
+    
     setInput("");
-
     const userMsg: ChatMsg = { role: "user", text: trimmed, ts: Date.now() };
     setMessages(prev => [...prev, userMsg]);
+    
+    loadingRef.current = true;
     setLoading(true);
 
     try {
       const res = await fetch(`/api/repos/${repoId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed }),
+        body: JSON.stringify({ message: trimmed, model: model }),
       });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: "Internal Server Error" }));
+        throw new Error(errorData.error || `Server failed with status ${res.status}`);
+      }
+
       const data = await res.json();
       const reply: ChatMsg = {
         role: "assistant",
@@ -327,17 +346,47 @@ function ChatPanel({ repoId, repoName }: { repoId: string; repoName?: string }) 
         ts: Date.now(),
       };
       setMessages(prev => [...prev, reply]);
-    } catch {
+    } catch (err: any) {
+      console.error("Chat Error:", err);
+      const errMsg = err.message || "Failed to connect to intelligence layer.";
+      
+      let rateLimitText = errMsg;
+      if (errMsg.includes("429") || errMsg.includes("rate_limit_exceeded")) {
+        const match = errMsg.match(/try again in\s+([0-9a-z.]+)/i);
+        const resetTime = match ? match[1] : "a few minutes";
+        setRateLimits(prev => ({ ...prev, [model || "llama-3.3-70b-versatile"]: resetTime }));
+        rateLimitText = `Model rate limit reached. Please select a different model below or try again in ${resetTime}.`;
+      }
+
       setMessages(prev => [...prev, {
         role: "assistant",
-        text: "Something went wrong. Make sure the AI endpoint is configured.",
+        text: `Architecture AI Error: ${rateLimitText}`,
         ts: Date.now(),
       }]);
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
-  }, [repoId, loading]);
+  }, [repoId, model]);
+
+  useEffect(() => {
+    const handleExecute = (e: any) => {
+      send(e.detail.message);
+    };
+    window.addEventListener("DEV_LENS_CHAT_EXECUTE", handleExecute);
+    return () => window.removeEventListener("DEV_LENS_CHAT_EXECUTE", handleExecute);
+  }, [send]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const empty = messages.length === 0;
+
+  const MODELS = [
+    { id: "llama-3.3-70b-versatile", name: "70B Power" },
+    { id: "llama-3.1-8b-instant", name: "8B Speed" },
+  ];
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#252525" }}>
@@ -449,9 +498,84 @@ function ChatPanel({ repoId, repoName }: { repoId: string; repoName?: string }) 
             }
           </button>
         </div>
-        <p style={{ margin: "6px 0 0", fontSize: 12, color: "#424242", textAlign: "center" }}>
-          ↵ to send · Shift+↵ new line
-        </p>
+        
+        {/* Bottom Accessories below the textarea container */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, position: "relative" }}>
+           
+           {/* Model Selector Button */}
+           {updateAiModel && (
+             <div style={{ position: "relative" }}>
+               <button 
+                 onClick={() => setDropdownOpen(!dropdownOpen)}
+                 style={{
+                   display: "flex", alignItems: "center", gap: 6,
+                   background: "#252525", border: "1px solid #3a3a3a",
+                   borderRadius: 12, padding: "4px 10px",
+                   color: "#ccc", fontSize: 12, fontWeight: 500,
+                   cursor: "pointer", outline: "none",
+                   transition: "background 150ms ease"
+                 }}
+                 onMouseEnter={e => e.currentTarget.style.background = "#303030"}
+                 onMouseLeave={e => e.currentTarget.style.background = "#252525"}
+               >
+                 <ChevronUp size={14} color="#888" />
+                 {MODELS.find(m => m.id === model)?.name || "Select Model"}
+               </button>
+
+               {/* Dropdown Menu */}
+               {dropdownOpen && (
+                 <>
+                   {/* Invisible backdrop to close dropdown */}
+                   <div 
+                     style={{ position: "fixed", inset: 0, zIndex: 100 }} 
+                     onClick={() => setDropdownOpen(false)} 
+                   />
+                   <div style={{
+                     position: "absolute", bottom: "100%", left: 0, marginBottom: 8,
+                     background: "#1e1e1e", border: "1px solid #333",
+                     borderRadius: 8, padding: "4px 0", width: 220,
+                     boxShadow: "0 10px 40px rgba(0,0,0,0.8)", zIndex: 101,
+                     display: "flex", flexDirection: "column"
+                   }}>
+                     <div style={{ padding: "8px 12px 4px", fontSize: 11, color: "#666", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                       Model
+                     </div>
+                     {MODELS.map(m => {
+                       const isRateLimited = !!rateLimits[m.id];
+                       const isSelected = m.id === model;
+                       return (
+                         <div
+                           key={m.id}
+                           onClick={() => {
+                             if (!isRateLimited) {
+                               updateAiModel(m.id);
+                               setDropdownOpen(false);
+                             }
+                           }}
+                           style={{
+                             padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between",
+                             background: isSelected ? "rgba(255,69,0,0.1)" : "transparent",
+                             color: isRateLimited ? "#666" : isSelected ? "#fff" : "#ccc",
+                             cursor: isRateLimited ? "not-allowed" : "pointer",
+                             fontSize: 13, transition: "background 150ms ease"
+                           }}
+                           onMouseEnter={e => { if (!isRateLimited && !isSelected) e.currentTarget.style.background = "#2a2a2a"; }}
+                           onMouseLeave={e => { if (!isRateLimited && !isSelected) e.currentTarget.style.background = "transparent"; }}
+                         >
+                            <span>{m.name}</span>
+                            {isRateLimited && <span style={{ fontSize: 10, color: "#ef4444", fontWeight: 700, padding: "2px 6px", background: "rgba(239,68,68,0.1)", borderRadius: 4 }}>Wait {rateLimits[m.id]}</span>}
+                         </div>
+                       )
+                     })}
+                   </div>
+                 </>
+               )}
+             </div>
+           )}
+           <div style={{ fontSize: 11, color: "#555" }}>
+             ↵ to send
+           </div>
+        </div>
       </div>
     </div>
   );
@@ -592,12 +716,43 @@ export default function RepoPage() {
   const [newRepoLoading, setNewRepoLoading] = useState(false);
   const [newRepoError, setNewRepoError] = useState("");
 
+  // Panel visibility
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [explorerOpen, setExplorerOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Resizable panels
   const sidebar  = useDragDivider(220, 160, 320, "h");
   const fileTree = useDragDivider(250, 160, 420, "h");
   const chatSize = useRightDragDivider(320, 250, 600);
+
+  const [aiModel, setAiModel] = useState("llama-3.3-70b-versatile");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("devlens-ai-model");
+    if (saved) setAiModel(saved);
+  }, []);
+
+  const updateAiModel = (m: string) => {
+    setAiModel(m);
+    localStorage.setItem("devlens-ai-model", m);
+  };
+
+  useEffect(() => {
+    const handleTrigger = (e: any) => {
+      const { message } = e.detail;
+      setRightPanelOpen(true);
+      setRightTab("chat");
+      // Use a small delay to ensure ChatPanel is rendered
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("DEV_LENS_CHAT_EXECUTE", { detail: { message } }));
+      }, 50);
+    };
+    window.addEventListener("DEV_LENS_CHAT_TRIGGER", handleTrigger);
+    return () => window.removeEventListener("DEV_LENS_CHAT_TRIGGER", handleTrigger);
+  }, []);
 
   useEffect(() => {
     if (!repoId) return;
@@ -769,182 +924,222 @@ export default function RepoPage() {
     }}>
 
       {/* ── Static nav sidebar ── */}
-      <div style={{
-        width: sidebar.size, flexShrink: 0,
-        background: "#252525", borderRight: "1px solid #303030",
-        display: "flex", flexDirection: "column", overflow: "hidden",
-        minWidth: 160, maxWidth: 320,
-      }}>
-        {/* Logo */}
+      {sidebarOpen && (
         <div style={{
-          padding: "14px 16px 12px",
-          borderBottom: "1px solid #303030",
-          display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
-        }}
-          onClick={() => router.push("/")}
-        >
+          width: sidebar.size, flexShrink: 0,
+          background: "#252525", borderRight: "1px solid #303030",
+          display: "flex", flexDirection: "column", overflow: "hidden",
+          minWidth: 160, maxWidth: 320,
+        }}>
+          {/* Logo */}
           <div style={{
-            width: 30, height: 30, borderRadius: 8,
-            background: "#ff4500",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0, boxShadow: "0 2px 8px rgba(255,69,0,0.2)",
-          }}>
-            <Code2 size={15} color="#fff" strokeWidth={2.5} />
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: "#ffffff", letterSpacing: "-0.02em" }}>
-              Dev<span style={{ color: "#ff4500" }}>Lens</span>
-            </div>
-            <div style={{ fontSize: 11, color: "#909090", marginTop: 1, fontWeight: 500 }}>Code Intelligence</div>
-          </div>
-        </div>
-
-        {/* Repository info */}
-        {repoInfo && (
-          <div style={{
-            padding: "10px 14px", borderBottom: "1px solid #303030",
-            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
-          }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: "#909090", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 3 }}>
-                Repository
-              </div>
-              <div style={{
-                fontSize: 13, fontWeight: 500, color: "#aaa",
-                overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis",
-                fontFamily: "var(--font-mono)",
-              }}>
-                {repoInfo.fullName}
-              </div>
-            </div>
-            <a href={repoInfo.url} target="_blank" rel="noopener noreferrer"
-              style={{
-                flexShrink: 0, color: "#909090", transition: "color 150ms ease",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                width: 28, height: 28, borderRadius: 6, background: "#303030",
-                border: "1px solid #303030",
-              }}
-              onMouseEnter={e => { e.currentTarget.style.color = "#ff4500"; e.currentTarget.style.borderColor = "#ff4500"; }}
-              onMouseLeave={e => { e.currentTarget.style.color = "#555"; e.currentTarget.style.borderColor = "#303030"; }}
-            >
-              <ExternalLink size={12} />
-            </a>
-          </div>
-        )}
-
-        {/* New Analysis */}
-        <div style={{ padding: "10px 12px 4px" }}>
-          <button
-            onClick={() => setShowNewAnalysis(true)}
-            style={{
-              width: "100%", display: "flex", alignItems: "center",
-              justifyContent: "center", gap: 7,
-              background: "none", border: "1px solid #4a4a4a",
-              borderRadius: 8, padding: "9px 0",
-              color: "#a0a0a0", fontSize: 14, fontWeight: 500,
-              cursor: "pointer", transition: "all 150ms ease",
-            }}
-            onMouseEnter={e => {
-              const el = e.currentTarget as HTMLElement;
-              el.style.background = "#252525";
-              el.style.color = "#ccc";
-              el.style.borderColor = "#4a4a4a";
-            }}
-            onMouseLeave={e => {
-              const el = e.currentTarget as HTMLElement;
-              el.style.background = "none";
-              el.style.color = "#666";
-              el.style.borderColor = "#4a4a4a";
-            }}
+            padding: "14px 16px 12px",
+            borderBottom: "1px solid #303030",
+            display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+          }}
+            onClick={() => router.push("/")}
           >
-            <Plus size={14} strokeWidth={1.75} />
-            New Analysis
-          </button>
-        </div>
-
-        <div style={{ flex: 1 }} />
-
-        {/* Stats */}
-        {repoStats && (
-          <div style={{
-            padding: "12px 14px",
-            borderTop: "1px solid #303030",
-          }}>
-            <div style={{ fontSize: 11, color: "#909090", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 8 }}>
-              Stats
+            <div style={{
+              width: 30, height: 30, borderRadius: 8,
+              background: "#ff4500",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              flexShrink: 0, boxShadow: "0 2px 8px rgba(255,69,0,0.2)",
+            }}>
+              <Code2 size={15} color="#fff" strokeWidth={2.5} />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 0" }}>
-              <StatPill value={repoStats.totalFiles}      label="files" />
-              <StatPill value={repoStats.totalComponents} label="components" />
-              <StatPill value={repoStats.totalFunctions}  label="functions" />
-              <StatPill value={repoStats.totalEdges}      label="edges" />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "#ffffff", letterSpacing: "-0.02em" }}>
+                Dev<span style={{ color: "#ff4500" }}>Lens</span>
+              </div>
+              <div style={{ fontSize: 11, color: "#909090", marginTop: 1, fontWeight: 500 }}>Code Intelligence</div>
             </div>
+            <button 
+              onClick={(e) => { e.stopPropagation(); setSidebarOpen(false); }}
+              style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 4 }}
+              title="Collapse sidebar"
+            >
+              <ChevronsLeft size={16} />
+            </button>
           </div>
-        )}
 
-        {/* Bottom actions */}
-        <div style={{ padding: "6px 8px 10px", borderTop: "1px solid #303030" }}>
-          {[
-            { icon: HelpCircle, label: "Help",     action: () => window.open("https://github.com", "_blank") },
-            { icon: Settings,   label: "Settings",  action: () => {} },
-          ].map(item => (
+          {/* Repository info */}
+          {repoInfo && (
+            <div style={{
+              padding: "10px 14px", borderBottom: "1px solid #303030",
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: "#909090", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 3 }}>
+                  Repository
+                </div>
+                <div style={{
+                  fontSize: 13, fontWeight: 500, color: "#aaa",
+                  overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis",
+                  fontFamily: "var(--font-mono)",
+                }}>
+                  {repoInfo.fullName}
+                </div>
+              </div>
+              <a href={repoInfo.url} target="_blank" rel="noopener noreferrer"
+                style={{
+                  flexShrink: 0, color: "#909090", transition: "color 150ms ease",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 28, height: 28, borderRadius: 6, background: "#303030",
+                  border: "1px solid #303030",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = "#ff4500"; e.currentTarget.style.borderColor = "#ff4500"; }}
+                onMouseLeave={e => { e.currentTarget.style.color = "#555"; e.currentTarget.style.borderColor = "#303030"; }}
+              >
+                <ExternalLink size={12} />
+              </a>
+            </div>
+          )}
+
+          {/* New Analysis */}
+          <div style={{ padding: "10px 12px 4px" }}>
             <button
-              key={item.label}
-              onClick={item.action}
+              onClick={() => setShowNewAnalysis(true)}
               style={{
-                width: "100%", display: "flex", alignItems: "center", gap: 10,
-                padding: "8px 12px", borderRadius: 6, border: "none",
-                background: "none", color: "#909090", fontSize: 14,
+                width: "100%", display: "flex", alignItems: "center",
+                justifyContent: "center", gap: 7,
+                background: "none", border: "1px solid #4a4a4a",
+                borderRadius: 8, padding: "9px 0",
+                color: "#a0a0a0", fontSize: 14, fontWeight: 500,
                 cursor: "pointer", transition: "all 150ms ease",
               }}
               onMouseEnter={e => {
-                (e.currentTarget as HTMLElement).style.background = "#252525";
-                (e.currentTarget as HTMLElement).style.color = "#aaa";
+                const el = e.currentTarget as HTMLElement;
+                el.style.background = "#252525";
+                el.style.color = "#ccc";
+                el.style.borderColor = "#4a4a4a";
               }}
               onMouseLeave={e => {
-                (e.currentTarget as HTMLElement).style.background = "none";
-                (e.currentTarget as HTMLElement).style.color = "#555";
+                const el = e.currentTarget as HTMLElement;
+                el.style.background = "none";
+                el.style.color = "#666";
+                el.style.borderColor = "#4a4a4a";
               }}
             >
-              <item.icon size={14} strokeWidth={1.75} />
-              {item.label}
+              <Plus size={14} strokeWidth={1.75} />
+              New Analysis
             </button>
-          ))}
+          </div>
+
+          <div style={{ flex: 1 }} />
+
+          {/* Stats */}
+          {repoStats && (
+            <div style={{
+              padding: "12px 14px",
+              borderTop: "1px solid #303030",
+            }}>
+              <div style={{ fontSize: 11, color: "#909090", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 8 }}>
+                Stats
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 0" }}>
+                <StatPill value={repoStats.totalFiles}      label="files" />
+                <StatPill value={repoStats.totalComponents} label="components" />
+                <StatPill value={repoStats.totalFunctions}  label="functions" />
+                <StatPill value={repoStats.totalEdges}      label="edges" />
+              </div>
+            </div>
+          )}
+
+          {/* Bottom actions */}
+          <div style={{ padding: "6px 8px 10px", borderTop: "1px solid #303030" }}>
+            {[
+              { icon: HelpCircle, label: "Help",     action: () => window.open("https://github.com", "_blank") },
+              { icon: Settings,   label: "Settings",  action: () => {} },
+            ].map(item => (
+              <button
+                key={item.label}
+                onClick={item.action}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", gap: 10,
+                  padding: "8px 12px", borderRadius: 6, border: "none",
+                  background: "none", color: "#909090", fontSize: 14,
+                  cursor: "pointer", transition: "all 150ms ease",
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.background = "#252525";
+                  (e.currentTarget as HTMLElement).style.color = "#aaa";
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.background = "none";
+                  (e.currentTarget as HTMLElement).style.color = "#555";
+                }}
+              >
+                <item.icon size={14} strokeWidth={1.75} />
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Sidebar ↔ content divider */}
-      <DragDivider onMouseDown={sidebar.onMouseDown} />
+      {sidebarOpen && <DragDivider onMouseDown={sidebar.onMouseDown} />}
 
       {/* ── Main area ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
         {/* File tree */}
-        <div style={{
-          width: fileTree.size, flexShrink: 0,
-          background: "#252525", borderRight: "1px solid #303030",
-          display: "flex", flexDirection: "column", overflow: "hidden",
-        }}>
-          <PanelBar>
-            <FolderTree size={14} color="#ff4500" strokeWidth={1.75} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#cccccc", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-              Explorer
-            </span>
-          </PanelBar>
-          <div style={{ flex: 1, overflow: "hidden" }}>
-            <FileTree
-              repoId={repoId}
-              selectedFileId={selectedFileId}
-              onFileSelect={handleFileSelect}
-            />
+        {explorerOpen && (
+          <div style={{
+            width: fileTree.size, flexShrink: 0,
+            background: "#252525", borderRight: "1px solid #303030",
+            display: "flex", flexDirection: "column", overflow: "hidden",
+          }}>
+            <PanelBar>
+              <FolderTree size={14} color="#ff4500" strokeWidth={1.75} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#cccccc", letterSpacing: "0.04em", textTransform: "uppercase", flex: 1 }}>
+                Explorer
+              </span>
+              <button 
+                onClick={() => setExplorerOpen(false)}
+                style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 4 }}
+                title="Collapse explorer"
+              >
+                <ChevronLeft size={16} />
+              </button>
+            </PanelBar>
+            <div style={{ flex: 1, overflow: "hidden" }}>
+              <FileTree
+                repoId={repoId}
+                selectedFileId={selectedFileId}
+                onFileSelect={handleFileSelect}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
-        <DragDivider onMouseDown={fileTree.onMouseDown} />
+        {explorerOpen && <DragDivider onMouseDown={fileTree.onMouseDown} />}
 
         {/* Graph */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <PanelBar>
+            {/* If sidebar or explorer is closed, show a restore button */}
+            {(!sidebarOpen || !explorerOpen) && (
+              <div style={{ display: "flex", gap: 6, marginRight: 10 }}>
+                {!sidebarOpen && (
+                  <button 
+                    onClick={() => setSidebarOpen(true)}
+                    style={{ background: "#252525", border: "1px solid #3a3a3a", borderRadius: 4, padding: "2px 6px", display: "flex", alignItems: "center", gap: 4, color: "#999", fontSize: 11, cursor: "pointer" }}
+                  >
+                    <SidebarIcon size={12} /> Sidebar
+                  </button>
+                )}
+                {!explorerOpen && (
+                  <button 
+                    onClick={() => setExplorerOpen(true)}
+                    style={{ background: "#252525", border: "1px solid #3a3a3a", borderRadius: 4, padding: "2px 6px", display: "flex", alignItems: "center", gap: 4, color: "#999", fontSize: 11, cursor: "pointer" }}
+                  >
+                    <FolderTree size={12} /> Explorer
+                  </button>
+                )}
+              </div>
+            )}
+
             <GitBranch size={14} color="#ff4500" strokeWidth={1.75} />
             <span style={{ fontSize: 14, fontWeight: 600, color: "#cccccc" }}>Dependency Graph</span>
             {repoInfo && (
@@ -960,6 +1155,20 @@ export default function RepoPage() {
                 <StatPill value={repoStats.totalFiles} label="files" />
                 <div style={{ width: 1, height: 14, background: "#4a4a4a" }} />
                 <StatPill value={repoStats.totalEdges} label="edges" />
+                
+                {/* Right panel toggle if closed */}
+                {!rightPanelOpen && (
+                  <button 
+                    onClick={() => setRightPanelOpen(true)}
+                    style={{ 
+                      background: "#ff4500", border: "none", borderRadius: 4, 
+                      padding: "4px 8px", color: "#fff", fontSize: 11, fontWeight: 600,
+                      cursor: "pointer", marginLeft: 8, display: "flex", alignItems: "center", gap: 4
+                    }}
+                  >
+                    <Bot size={12} color="#fff" /> AI
+                  </button>
+                )}
               </div>
             )}
           </PanelBar>
@@ -971,79 +1180,90 @@ export default function RepoPage() {
         </div>
 
         {/* Right side — Tabs (Chat / Insights / Code) */}
-        <DragDivider onMouseDown={chatSize.onMouseDown} />
-        <div style={{ 
-          width: chatSize.size, flexShrink: 0, 
-          minWidth: 250, maxWidth: 600,
-          borderLeft: "1px solid #303030", 
-          display: "flex", flexDirection: "column",
-          background: "#252525"
-        }}>
-          {/* Tab Bar */}
+        {rightPanelOpen && <DragDivider onMouseDown={chatSize.onMouseDown} />}
+        {rightPanelOpen && (
           <div style={{ 
-            display: "flex", height: 44, borderBottom: "1px solid #303030", 
-            background: "#0d0d0d", padding: "0 8px", alignItems: "center" 
+            width: chatSize.size, flexShrink: 0, 
+            minWidth: 250, maxWidth: 600,
+            borderLeft: "1px solid #303030", 
+            display: "flex", flexDirection: "column",
+            background: "#252525"
           }}>
-            <button 
-              onClick={() => setRightTab("chat")}
-              style={{
-                flex: 1, background: "none", border: "none", height: "100%",
-                color: rightTab === "chat" ? "#ff4500" : "#666",
-                fontSize: 13, fontWeight: rightTab === "chat" ? 600 : 500,
-                cursor: "pointer", borderBottom: `2px solid ${rightTab === "chat" ? "#ff4500" : "transparent"}`
-              }}
-            >
-              AI Assistant
-            </button>
-            {selectedFileId && (
-              <>
+            {/* Tab Bar */}
+            <div style={{ 
+              display: "flex", height: 44, borderBottom: "1px solid #303030", 
+              background: "#0d0d0d", padding: "0 8px", alignItems: "center" 
+            }}>
+              <button 
+                onClick={() => setRightTab("chat")}
+                style={{
+                  flex: 1, background: "none", border: "none", height: "100%",
+                  color: rightTab === "chat" ? "#ff4500" : "#666",
+                  fontSize: 13, fontWeight: rightTab === "chat" ? 600 : 500,
+                  cursor: "pointer", borderBottom: `2px solid ${rightTab === "chat" ? "#ff4500" : "transparent"}`
+                }}
+              >
+                AI Assistant
+              </button>
+              {selectedFileId && (
+                <>
+                  <button 
+                    onClick={() => setRightTab("insights")}
+                    style={{
+                      flex: 1, background: "none", border: "none", height: "100%",
+                      color: rightTab === "insights" ? "#ff4500" : "#666",
+                      fontSize: 13, fontWeight: rightTab === "insights" ? 600 : 500,
+                      cursor: "pointer", borderBottom: `2px solid ${rightTab === "insights" ? "#ff4500" : "transparent"}`
+                    }}
+                  >
+                    Insights
+                  </button>
+                  <button 
+                    onClick={() => setRightTab("code")}
+                    style={{
+                      flex: 1, background: "none", border: "none", height: "100%",
+                      color: rightTab === "code" ? "#ff4500" : "#666",
+                      fontSize: 13, fontWeight: rightTab === "code" ? 600 : 500,
+                      cursor: "pointer", borderBottom: `2px solid ${rightTab === "code" ? "#ff4500" : "transparent"}`
+                    }}
+                  >
+                    Source Code
+                  </button>
+                </>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 10px", marginLeft: "auto", height: "100%" }}>
                 <button 
-                  onClick={() => setRightTab("insights")}
-                  style={{
-                    flex: 1, background: "none", border: "none", height: "100%",
-                    color: rightTab === "insights" ? "#ff4500" : "#666",
-                    fontSize: 13, fontWeight: rightTab === "insights" ? 600 : 500,
-                    cursor: "pointer", borderBottom: `2px solid ${rightTab === "insights" ? "#ff4500" : "transparent"}`
-                  }}
+                  onClick={() => setRightPanelOpen(false)}
+                  style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 0, height: "100%", display: "flex", alignItems: "center" }}
+                  title="Close panel"
                 >
-                  Insights
+                  <ChevronsRight size={18} />
                 </button>
-                <button 
-                  onClick={() => setRightTab("code")}
-                  style={{
-                    flex: 1, background: "none", border: "none", height: "100%",
-                    color: rightTab === "code" ? "#ff4500" : "#666",
-                    fontSize: 13, fontWeight: rightTab === "code" ? 600 : 500,
-                    cursor: "pointer", borderBottom: `2px solid ${rightTab === "code" ? "#ff4500" : "transparent"}`
-                  }}
-                >
-                  Source Code
-                </button>
-              </>
-            )}
-          </div>
+              </div>
+            </div>
 
-          {/* Tab Content */}
-          <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            {rightTab === "chat" && <ChatPanel repoId={repoId} repoName={repoInfo?.fullName} />}
-            {rightTab === "insights" && selectedFileId && (
-              <FileDetailPanel
-                fileId={selectedFileId}
-                onClose={handleCloseDetail}
-                onFileSelect={handleNodeClick}
-                activeTab="insights"
-              />
-            )}
-            {rightTab === "code" && selectedFileId && (
-              <FileDetailPanel
-                fileId={selectedFileId}
-                onClose={handleCloseDetail}
-                onFileSelect={handleNodeClick}
-                activeTab="code"
-              />
-            )}
+            {/* Tab Content */}
+            <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+              {rightTab === "chat" && <ChatPanel repoId={repoId} repoName={repoInfo?.fullName} model={aiModel} updateAiModel={updateAiModel} />}
+              {rightTab === "insights" && selectedFileId && (
+                <FileDetailPanel
+                  fileId={selectedFileId}
+                  onClose={handleCloseDetail}
+                  onFileSelect={handleNodeClick}
+                  activeTab="insights"
+                />
+              )}
+              {rightTab === "code" && selectedFileId && (
+                <FileDetailPanel
+                  fileId={selectedFileId}
+                  onClose={handleCloseDetail}
+                  onFileSelect={handleNodeClick}
+                  activeTab="code"
+                />
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* New Analysis Modal */}

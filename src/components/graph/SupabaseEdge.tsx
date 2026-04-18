@@ -4,7 +4,7 @@ import {
   EdgeLabelRenderer,
   type EdgeProps,
 } from "@xyflow/react";
-import { Loader2, Sparkles, X, ChevronRight, Info } from "lucide-react";
+import { Loader2, Sparkles, X, ChevronRight, Info, Bot } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -64,6 +64,59 @@ function SupabaseEdge({
   // Show tooltip if hovered OR expanded
   const showTooltip = (hovered || expanded) && !isDimmed && !!importRaw;
 
+  const [selection, setSelection] = useState<{ text: string; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!expanded) {
+      setSelection(null);
+      return;
+    }
+    const handleSelection = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.toString().trim().length === 0 || sel.rangeCount === 0) {
+        setSelection(null);
+        return;
+      }
+      
+      const range = sel.getRangeAt(0);
+      const container = tooltipRef.current;
+      
+      // Only show if selection is inside this specific tooltip
+      if (container && !container.contains(range.commonAncestorContainer)) {
+        setSelection(null);
+        return;
+      }
+
+      const rect = range.getBoundingClientRect();
+      setSelection({
+        text: sel.toString().trim(),
+        x: rect.left + rect.width / 2,
+        y: rect.top,
+      });
+    };
+
+    document.addEventListener("selectionchange", handleSelection);
+    return () => document.removeEventListener("selectionchange", handleSelection);
+  }, [expanded]);
+
+  const handleAiAction = useCallback((type: "explain" | "chat") => {
+    if (!selection) return;
+    
+    let message = selection.text;
+    if (type === "explain") {
+      message = `Please explain this in detail: \n\n"${selection.text}"`;
+    }
+
+    // Dispatch custom event that RepoPage/ChatPanel will listen for
+    window.dispatchEvent(new CustomEvent("DEV_LENS_CHAT_TRIGGER", {
+      detail: { message }
+    }));
+    
+    // Clear selection UI
+    setSelection(null);
+    window.getSelection()?.removeAllRanges();
+  }, [selection]);
+
   const handleExpand = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (expanded) {
@@ -75,10 +128,12 @@ function SupabaseEdge({
     if (!explanation && !loading) {
       setLoading(true);
       try {
+        const aiModel = localStorage.getItem("devlens-ai-model") || "llama-3.3-70b-versatile";
+        
         const res = await fetch(`/api/repos/${repoId}/explain-relation`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sourcePath, targetPath, importRaw }),
+          body: JSON.stringify({ sourcePath, targetPath, importRaw, model: aiModel }),
         });
         const data = await res.json();
         if (data.success) {
@@ -259,7 +314,13 @@ function SupabaseEdge({
                           <span style={{ fontSize: 12, color: "#888", fontWeight: 500 }}>Analyzing architecture impact...</span>
                         </div>
                       ) : (
-                        <div className="md-body" style={{ fontSize: 13.5, color: "#d0d0d0", lineHeight: 1.6 }}>
+                        <div 
+                          className="md-body" 
+                          style={{ 
+                            fontSize: 13.5, color: "#d0d0d0", lineHeight: 1.6,
+                            userSelect: "text"
+                          }}
+                        >
                           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, color: "#ff4500" }}>
                              <Sparkles size={14} />
                              <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>Intelligence Insight</span>
@@ -302,6 +363,56 @@ function SupabaseEdge({
                }}
              />
             )}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+
+      {/* Selection Menu */}
+      {selection && (
+        <EdgeLabelRenderer>
+          <div style={{
+            position: "fixed",
+            top: selection.y - 45,
+            left: selection.x,
+            transform: "translateX(-50%)",
+            zIndex: 10001,
+            display: "flex",
+            gap: 2,
+            background: "#1a1a1a",
+            border: "1px solid #ff4500",
+            borderRadius: 8,
+            padding: "4px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.8)",
+            animation: "dl-fadein 0.2s ease forwards",
+            pointerEvents: "all",
+          }}>
+             <button 
+               onClick={() => handleAiAction("chat")}
+               style={{
+                 background: "none", border: "none", color: "#ddd",
+                 padding: "6px 12px", fontSize: 11, fontWeight: 600,
+                 cursor: "pointer", borderRadius: 4, display: "flex", alignItems: "center", gap: 6,
+                 transition: "all 150ms ease"
+               }}
+               onMouseEnter={e => e.currentTarget.style.background = "#2a2a2a"}
+               onMouseLeave={e => e.currentTarget.style.background = "none"}
+             >
+               <Bot size={13} color="#ff4500" /> Chat
+             </button>
+             <div style={{ width: 1, height: 16, background: "#333", alignSelf: "center" }} />
+             <button 
+               onClick={() => handleAiAction("explain")}
+               style={{
+                 background: "none", border: "none", color: "#ddd",
+                 padding: "6px 12px", fontSize: 11, fontWeight: 600,
+                 cursor: "pointer", borderRadius: 4, display: "flex", alignItems: "center", gap: 6,
+                 transition: "all 150ms ease"
+               }}
+               onMouseEnter={e => e.currentTarget.style.background = "#2a2a2a"}
+               onMouseLeave={e => e.currentTarget.style.background = "none"}
+             >
+               <Sparkles size={13} color="#ff4500" /> Explain
+             </button>
           </div>
         </EdgeLabelRenderer>
       )}

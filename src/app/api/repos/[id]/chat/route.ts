@@ -83,7 +83,9 @@ export async function POST(
   try {
     const { id: repoId } = await params;
     const body = await req.json();
-    const { message } = body as { message?: string };
+    const { message, model: requestedModel } = body as { message?: string; model?: string };
+
+    const activeModel = requestedModel || CHAT_MODEL;
 
     // ── 1. Validate ─────────────────────────────────────────────────────
     if (!message || !message.trim()) {
@@ -191,7 +193,7 @@ export async function POST(
 
     // ── 7. Call Groq ────────────────────────────────────────────────────
     const completion = await groq.chat.completions.create({
-      model: CHAT_MODEL,
+      model: activeModel,
       temperature: 0.3,
       max_tokens: 800,
       messages: [
@@ -225,7 +227,7 @@ export async function POST(
         role: "ASSISTANT",
         content: groqResponse,
         referencedFiles: relevantFiles.map((f) => f.filePath),
-        model: CHAT_MODEL,
+        model: activeModel,
         promptTokens: usage?.prompt_tokens ?? 0,
         completionTokens: usage?.completion_tokens ?? 0,
       },

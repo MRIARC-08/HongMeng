@@ -8,7 +8,9 @@ export async function POST(
 ) {
   try {
     const { id: repoId } = await params;
-    const { sourcePath, targetPath, importRaw } = await req.json();
+    const { sourcePath, targetPath, importRaw, model: requestedModel } = await req.json();
+
+    const activeModel = requestedModel || "llama-3.3-70b-versatile";
 
     if (!sourcePath || !targetPath) {
       return NextResponse.json({ success: false, error: "Missing source/target" }, { status: 400 });
@@ -52,7 +54,7 @@ Keep the explanation professional, concise (max 3-4 paragraphs), and insightful.
 `;
 
     const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: activeModel,
       temperature: 0.2,
       max_tokens: 1000,
       messages: [
