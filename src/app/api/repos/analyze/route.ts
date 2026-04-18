@@ -2,9 +2,13 @@
 // Accepts a GitHub URL, creates a repo record, fires the pipeline.
 
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { processRepository } from "@/lib/pipeline";
 import { RepositoryStatus } from "@prisma/client";
+
+export const maxDuration = 60; // Allow more time on Vercel for parsing
+
 
 const GITHUB_URL_RE = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)/;
 
@@ -64,8 +68,10 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // ── 4. Fire and forget — pipeline updates DB itself ────────────────
-    processRepository(repo.id).catch(console.error);
+    // ── 4. Fire and forget safely using Next.js `after()` ────────────────
+    after(async () => {
+      await processRepository(repo.id).catch(console.error);
+    });
 
     return NextResponse.json({
       success: true,

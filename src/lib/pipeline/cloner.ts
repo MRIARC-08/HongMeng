@@ -1,17 +1,18 @@
 // src/lib/pipeline/cloner.ts
-// Step 1: Clone a GitHub repo to a temp directory using simple-git
+// Step 1: Download a GitHub repo tarball and extract it (works on Vercel serverless)
 
-import simpleGit from "simple-git";
+import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 
 /**
- * Clones a GitHub repository to a local temp directory.
- * Uses --depth 1 (shallow clone) for speed — we don't need git history.
+ * Downloads a GitHub repository to a local temp directory.
+ * Uses the GitHub API tarball endpoint to automatically get the default branch,
+ * circumventing the need for the `git` binary to be installed on the server.
  *
  * @param repoUrl  Full GitHub URL e.g. "https://github.com/vercel/next.js"
  * @param repoId   Unique ID from DB — used as the folder name
- * @returns        Absolute path to the cloned directory
+ * @returns        Absolute path to the downloaded directory
  */
 export async function cloneRepository(
   repoUrl: string,
@@ -20,21 +21,32 @@ export async function cloneRepository(
   const base = process.env.CLONE_BASE_PATH ?? "/tmp/devlens";
   const clonePath = path.join(base, repoId);
 
-  console.log(`[cloner] Starting clone of ${repoUrl} → ${clonePath}`);
+  const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+  if (!match) {
+    throw new Error("Invalid GitHub URL format");
+  }
+
+  const owner = match[1];
+  const name = match[2].replace(/\.git$/, "");
+
+  console.log(`[cloner] Starting download of ${owner}/${name} → ${clonePath}`);
 
   try {
     // Create the target directory if it doesn't exist
     fs.mkdirSync(clonePath, { recursive: true });
 
-    const git = simpleGit();
+    // Download the tarball from GitHub API (gets default branch automatically)
+    // tar --strip-components=1 removes the top-level repository folder from the tarball
+    const tarballUrl = `https://api.github.com/repos/${owner}/${name}/tarball`;
+    const cmd = `curl -sL "${tarballUrl}" | tar -xz -C "${clonePath}" --strip-components=1`;
+    
+    console.log(`[cloner] Running extraction...`);
+    execSync(cmd, { stdio: "pipe" });
 
-    // Shallow clone — depth 1 means only the latest commit, much faster
-    await git.clone(repoUrl, clonePath, ["--depth", "1"]);
-
-    console.log(`[cloner] ✓ Clone complete: ${clonePath}`);
+    console.log(`[cloner] ✓ Download and extraction complete: ${clonePath}`);
     return clonePath;
   } catch (err) {
-    console.error(`[cloner] ✗ Clone failed for ${repoUrl}:`, err);
+    console.error(`[cloner] ✗ Clone/Download failed for ${repoUrl}:`, err);
 
     // Clean up partial clone if it exists
     try {
@@ -46,7 +58,8 @@ export async function cloneRepository(
     }
 
     throw new Error(
-      "Failed to clone repository. Make sure it is public and the URL is correct."
+      "Failed to download repository. Make sure it is public and the URL is correct."
     );
   }
 }
+
