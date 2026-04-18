@@ -61,16 +61,22 @@ export async function POST(
     }
 
     // ── 3. Build prompt ─────────────────────────────────────────────────
+    type DepWithTarget = { targetFile: { filePath: string } | null };
+    type DepWithSource = { sourceFile: { filePath: string } };
+
+    const outgoing = file.outgoingDeps as DepWithTarget[];
+    const incoming = file.incomingDeps as DepWithSource[];
+
     const importsText =
-      file.outgoingDeps.length > 0
-        ? (file.outgoingDeps
-            .flatMap((d) => (d.targetFile ? [`- ${d.targetFile.filePath}`] : []))
+      outgoing.length > 0
+        ? (outgoing
+            .flatMap((d: DepWithTarget) => (d.targetFile ? [`- ${d.targetFile.filePath}`] : []))
             .join("\n") || "No internal dependencies")
         : "No internal dependencies";
 
     const importedByText =
-      file.incomingDeps.length > 0
-        ? file.incomingDeps.map((d) => `- ${d.sourceFile.filePath}`).join("\n")
+      incoming.length > 0
+        ? incoming.map((d: DepWithSource) => `- ${d.sourceFile.filePath}`).join("\n")
         : "Not imported by any file";
 
     const prompt = `You are an expert code analyst.
