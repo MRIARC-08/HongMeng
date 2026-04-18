@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { groq } from "@/lib/groq";
-import { MessageRole, RepositoryStatus } from "@prisma/client";
+import { RepositoryStatus } from "@prisma/client";
 
 const CHAT_MODEL = "llama-3.3-70b-versatile";
 
@@ -117,7 +117,7 @@ export async function POST(
     await prisma.chatMessage.create({
       data: {
         repositoryId: repoId,
-        role: MessageRole.USER,
+        role: "USER",
         content: message.trim(),
       },
     });
@@ -204,7 +204,7 @@ export async function POST(
             "and keep answers concise but complete. If you are unsure, say so.",
         },
         ...historyMessages.map((m) => ({
-          role: m.role === MessageRole.USER ? ("user" as const) : ("assistant" as const),
+          role: m.role === "USER" ? ("user" as const) : ("assistant" as const),
           content: m.content,
         })),
         {
@@ -222,7 +222,7 @@ export async function POST(
     const assistantMessage = await prisma.chatMessage.create({
       data: {
         repositoryId: repoId,
-        role: MessageRole.ASSISTANT,
+        role: "ASSISTANT",
         content: groqResponse,
         referencedFiles: relevantFiles.map((f) => f.filePath),
         model: CHAT_MODEL,
