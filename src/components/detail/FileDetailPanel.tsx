@@ -425,7 +425,7 @@ export default function FileDetailPanel({ fileId, onClose, activeTab = "insights
                 <button 
                   onClick={() => {
                     const msg = `Explain this snippet from \`${file.fileName}\`:\n\n\`\`\`${getLang(file.extension)}\n${selectedText}\n\`\`\`\n\n`;
-                    window.dispatchEvent(new CustomEvent("DEV_LENS_CHAT_PREFILL", { detail: { message: msg } }));
+                    window.dispatchEvent(new CustomEvent("DEV_LENS_CHAT_TRIGGER", { detail: { message: msg } }));
                     setSelectedText("");
                   }}
                   style={{ 

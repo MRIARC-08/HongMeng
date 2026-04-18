@@ -458,8 +458,8 @@ function InnerGraph({ repoId, selectedFileId, onNodeClick }: InnerGraphProps) {
       <Background
         variant={BackgroundVariant.Dots}
         gap={24}
-        size={1}
-        color="#303030"
+        size={1.5}
+        color="rgba(255, 255, 255, 0.15)"
         style={{ background: "#252525" }}
       />
 

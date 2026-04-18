@@ -795,10 +795,20 @@ export default function RepoPage() {
       // Use a small delay to ensure ChatPanel is rendered
       setTimeout(() => {
         window.dispatchEvent(new CustomEvent("DEV_LENS_CHAT_PREFILL", { detail: { message } }));
-      }, 50);
+      }, 100);
     };
+    
+    const handlePrefillOpen = () => {
+      setRightPanelOpen(true);
+      setRightTab("chat");
+    };
+
     window.addEventListener("DEV_LENS_CHAT_TRIGGER", handleTrigger);
-    return () => window.removeEventListener("DEV_LENS_CHAT_TRIGGER", handleTrigger);
+    window.addEventListener("DEV_LENS_CHAT_PREFILL", handlePrefillOpen);
+    return () => {
+      window.removeEventListener("DEV_LENS_CHAT_TRIGGER", handleTrigger);
+      window.removeEventListener("DEV_LENS_CHAT_PREFILL", handlePrefillOpen);
+    };
   }, []);
 
   useEffect(() => {
