@@ -63,10 +63,9 @@ export async function POST(
     // ── 3. Build prompt ─────────────────────────────────────────────────
     const importsText =
       file.outgoingDeps.length > 0
-        ? file.outgoingDeps
-            .filter((d): d is typeof d & { targetFile: NonNullable<typeof d.targetFile> } => d.targetFile !== null)
-            .map((d) => `- ${d.targetFile.filePath}`)
-            .join("\n")
+        ? (file.outgoingDeps
+            .flatMap((d) => (d.targetFile ? [`- ${d.targetFile.filePath}`] : []))
+            .join("\n") || "No internal dependencies")
         : "No internal dependencies";
 
     const importedByText =
