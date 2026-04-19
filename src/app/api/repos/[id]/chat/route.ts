@@ -83,7 +83,7 @@ export async function POST(
   try {
     const { id: repoId } = await params;
     const body = await req.json();
-    const { message, model: requestedModel } = body as { message?: string; model?: string };
+    const { message, model: requestedModel, selectedFileId } = body as { message?: string; model?: string; selectedFileId?: string };
 
     const activeModel = requestedModel || CHAT_MODEL;
 
@@ -126,6 +126,18 @@ export async function POST(
 
     // ── 4. Find relevant files via keyword matching ─────────────────────
 
+    // Start with the selected file if it exists
+    let relevantFiles: any[] = [];
+    if (selectedFileId) {
+      const selectedFile = await prisma.file.findUnique({
+        where: { id: selectedFileId },
+        select: { id: true, filePath: true, fileName: true, rawContent: true },
+      });
+      if (selectedFile) {
+        relevantFiles.push(selectedFile);
+      }
+    }
+
     // Extract meaningful keywords from the question
     const keywords = message
       .toLowerCase()
@@ -135,11 +147,12 @@ export async function POST(
 
     // Fetch all files (without rawContent first for efficiency)
     const allFiles = await prisma.file.findMany({
-      where: { repositoryId: repoId },
+      where: { 
+        repositoryId: repoId,
+        id: { notIn: relevantFiles.map(f => f.id) } // Exclude already picked selected file
+      },
       select: { id: true, filePath: true, fileName: true, rawContent: true },
     });
-
-    let relevantFiles: typeof allFiles = [];
 
     if (keywords.length > 0) {
       // Score each file by keyword presence
@@ -157,10 +170,11 @@ export async function POST(
         return { ...f, score };
       });
 
-      relevantFiles = scored
+      const matchedFiles = scored
         .filter((f) => f.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, 4);
+      relevantFiles = [...relevantFiles, ...matchedFiles];
     }
 
     // Fallback: use the most-imported (highest incomingDeps count) files

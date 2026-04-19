@@ -347,7 +347,7 @@ const STARTER_QUESTIONS = [
 
 // ── Chat panel ────────────────────────────────────────────────────────────────
 
-function ChatPanel({ repoId, repoName, model, updateAiModel }: { repoId: string; repoName?: string; model?: string; updateAiModel?: (m: string) => void }) {
+function ChatPanel({ repoId, repoName, selectedFileId, model, updateAiModel }: { repoId: string; repoName?: string; selectedFileId?: string | null; model?: string; updateAiModel?: (m: string) => void }) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [rateLimits, setRateLimits] = useState<Record<string, string>>({});
   const [input, setInput] = useState("");
@@ -371,7 +371,7 @@ function ChatPanel({ repoId, repoName, model, updateAiModel }: { repoId: string;
       const res = await fetch(`/api/repos/${repoId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed, model: model }),
+        body: JSON.stringify({ message: trimmed, model: model, selectedFileId: selectedFileId }),
       });
 
       if (!res.ok) {
@@ -1285,7 +1285,7 @@ export default function RepoPage() {
 
             {/* Tab Content */}
             <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-              {rightTab === "chat" && <ChatPanel repoId={repoId} repoName={repoInfo?.fullName} model={aiModel} updateAiModel={updateAiModel} />}
+              {rightTab === "chat" && <ChatPanel repoId={repoId} repoName={repoInfo?.fullName} selectedFileId={selectedFileId} model={aiModel} updateAiModel={updateAiModel} />}
               {rightTab === "insights" && selectedFileId && (
                 <FileDetailPanel
                   fileId={selectedFileId}
